@@ -1,0 +1,6 @@
+.idea/
+.DS_Store
+/experiments/
+/bin/
+/llmoptimizer
+/llmoptimizer.exe
