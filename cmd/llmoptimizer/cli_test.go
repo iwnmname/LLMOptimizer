@@ -33,7 +33,7 @@ func TestCLIHelpAndMissingArguments(t *testing.T) {
 		{args: []string{"unknown"}, code: 2},
 		{args: []string{"ask"}, code: 2},
 		{args: []string{"inspect"}, code: 1},
-		{args: []string{"run", "--task", "Fix"}, code: 2},
+		{args: []string{"run"}, code: 2},
 		{args: []string{"verify", "extra"}, code: 2},
 	} {
 		if code := run(tc.args, io.Discard, io.Discard); code != tc.code {
