@@ -23,7 +23,7 @@ const inspectUsage = "llmoptimizer inspect [--dir PATH] --task TEXT"
 const verifyUsage = "llmoptimizer verify [--dir PATH] [--record]"
 
 func run(args []string, stdout, stderr io.Writer) int {
-	const usage = "Usage:\n  " + inspectUsage + "\n  " + verifyUsage + "\n  " + askUsage + "\n  " + runUsage
+	const usage = "Usage:\n  " + inspectUsage + "\n  " + verifyUsage + "\n  " + askUsage + "\n  " + runUsage + "\n  " + indexUsage
 
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
@@ -42,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ask(args[1:], stdout, stderr)
 	case "run":
 		return runTask(args[1:], stdout, stderr)
+	case "index":
+		return indexRepository(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\n", args[0])
 		fmt.Fprintln(stderr, usage)
