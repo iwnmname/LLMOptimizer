@@ -11,7 +11,7 @@ import (
 )
 
 const chatURL = "http://127.0.0.1:11434/api/chat"
-const modelName = "qwen3.5:9b-q4_K_M"
+const DefaultModel = "qwen3.5:9b-q4_K_M"
 
 type Result struct {
 	Model        string
@@ -46,17 +46,17 @@ type chatResponse struct {
 }
 
 func Ask(ctx context.Context, prompt string) (Result, error) {
-	return AskWithFormat(ctx, prompt, nil)
+	return AskWithFormat(ctx, DefaultModel, prompt, nil)
 }
 
-func AskWithFormat(ctx context.Context, prompt string, format json.RawMessage) (Result, error) {
+func AskWithFormat(ctx context.Context, model, prompt string, format json.RawMessage) (Result, error) {
 	client := &http.Client{Timeout: 3 * time.Minute}
-	return askWithClient(ctx, client, prompt, format)
+	return askWithClient(ctx, client, model, prompt, format)
 }
 
-func askWithClient(ctx context.Context, client *http.Client, prompt string, format json.RawMessage) (Result, error) {
+func askWithClient(ctx context.Context, client *http.Client, model, prompt string, format json.RawMessage) (Result, error) {
 	body, err := json.Marshal(chatRequest{
-		Model:     modelName,
+		Model:     model,
 		Messages:  []message{{Role: "user", Content: prompt}},
 		Stream:    false,
 		Think:     false,

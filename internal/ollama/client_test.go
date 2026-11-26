@@ -20,10 +20,11 @@ func (transport transportFunc) RoundTrip(request *http.Request) (*http.Response,
 func TestAskWithClientSendsPromptAndReadsUsage(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
+		model  string
 		format json.RawMessage
 	}{
-		{name: "plain text"},
-		{name: "structured answer", format: json.RawMessage(`{"type":"object"}`)},
+		{name: "plain text", model: DefaultModel},
+		{name: "structured answer", model: "fixture:light", format: json.RawMessage(`{"type":"object"}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &http.Client{Transport: transportFunc(func(request *http.Request) (*http.Response, error) {
@@ -40,7 +41,7 @@ func TestAskWithClientSendsPromptAndReadsUsage(t *testing.T) {
 				if err := json.NewDecoder(request.Body).Decode(&sent); err != nil {
 					t.Fatal(err)
 				}
-				if sent.Model != modelName || sent.Options["num_ctx"] != 4096 || !bytes.Equal(sent.Format, tc.format) {
+				if sent.Model != tc.model || sent.Options["num_ctx"] != 4096 || !bytes.Equal(sent.Format, tc.format) {
 					t.Fatalf("unexpected chat settings: %+v", sent)
 				}
 				if sent.Streaming == nil || *sent.Streaming || sent.KeepLoaded == nil || *sent.KeepLoaded != 0 {
@@ -55,7 +56,7 @@ func TestAskWithClientSendsPromptAndReadsUsage(t *testing.T) {
 						`{"model":"fixture","message":{"content":"result"},"done":true,"prompt_eval_count":12,"eval_count":4}`)),
 				}, nil
 			})}
-			reply, err := askWithClient(t.Context(), client, "Sample task", tc.format)
+			reply, err := askWithClient(t.Context(), client, tc.model, "Sample task", tc.format)
 			if err != nil || reply.Model != "fixture" || reply.Text != "result" ||
 				reply.InputTokens != 12 || reply.OutputTokens != 4 {
 				t.Fatalf("reply = %+v, error = %v", reply, err)
@@ -84,7 +85,7 @@ func TestAskWithClientReportsInvalidResponses(t *testing.T) {
 					Body: io.NopCloser(strings.NewReader(tc.body)),
 				}, nil
 			})}
-			_, err := askWithClient(t.Context(), client, "Sample task", nil)
+			_, err := askWithClient(t.Context(), client, DefaultModel, "Sample task", nil)
 			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
 				t.Fatalf("error = %v, want %q", err, tc.wantError)
 			}
@@ -99,7 +100,7 @@ func TestAskWithClientPreservesCancellation(t *testing.T) {
 	})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := askWithClient(ctx, client, "Sample task", nil); !errors.Is(err, context.Canceled) {
+	if _, err := askWithClient(ctx, client, DefaultModel, "Sample task", nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context cancellation", err)
 	}
 }
