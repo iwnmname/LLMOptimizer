@@ -8,11 +8,13 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/iwnmname/LLMOptimizer/internal/contextmanager"
 	"github.com/iwnmname/LLMOptimizer/internal/ollama"
+	"github.com/iwnmname/LLMOptimizer/internal/router"
 )
 
 const fileFormat = `{"type":"object","properties":{"content":{"type":"string"}},"required":["content"],"additionalProperties":false}`
@@ -21,6 +23,7 @@ type RunInput struct {
 	Directory string
 	File      string
 	Task      string
+	Model     string
 }
 
 type RunResult struct {
@@ -28,6 +31,7 @@ type RunResult struct {
 	File         string
 	Prompt       string
 	Generation   ollama.Result
+	Route        router.Decision
 	Candidate    *string
 	Verification *VerificationResult
 	Context      *ContextResult
@@ -85,7 +89,7 @@ func runWithModel(
 		var fragments []contextmanager.Fragment
 		if file == "" {
 			result.Context = &ContextResult{}
-			file, fragments, err = selectContext(ctx, workspace, sources, task, description, askModel, result.Context)
+			file, fragments, err = selectContext(ctx, workspace, sources, task, description, input.Model, askModel, result.Context)
 			if err != nil {
 				return err
 			}
@@ -99,13 +103,22 @@ func runWithModel(
 		}
 		prompt := "Update only the selected file. Return its full replacement in the JSON field content. Preserve unrelated code.\n\n" +
 			description + "\n\nSelected file " + filepath.ToSlash(file) + "\n" + original
+		stats := router.ContextStats{SourceBytes: len(original)}
+		selectedDir := path.Dir(filepath.ToSlash(file))
+		otherPackageDirs := make(map[string]struct{})
 		for _, fragment := range fragments {
+			stats.SourceBytes += len(fragment.Source)
+			if directory := path.Dir(fragment.Path); directory != selectedDir {
+				otherPackageDirs[directory] = struct{}{}
+			}
 			prompt += fmt.Sprintf("\n\nAdditional source %s (lines %d-%d) in Go package %s\n%s", fragment.Path,
 				fragment.StartLine, fragment.EndLine, fragment.Package, fragment.Source)
 		}
 		result.Prompt = prompt
 
-		result.Generation, err = askModel(ctx, prompt, json.RawMessage(fileFormat))
+		stats.ExternalPackages = len(otherPackageDirs)
+		result.Route = router.Choose(task, stats, input.Model)
+		result.Generation, err = askModel(ctx, result.Route.Model, prompt, json.RawMessage(fileFormat))
 		if err != nil {
 			return err
 		}

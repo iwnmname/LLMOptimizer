@@ -17,20 +17,33 @@ func renderRunSummary(task string, result orchestrator.RunResult, runErr error) 
 		fmt.Fprintf(&summary, "Выбранный файл `%s`.\n\n", result.File)
 	}
 
+	hasContextRoute := result.Context != nil && result.Context.Route.Model != ""
+	if hasContextRoute || result.Route.Model != "" {
+		summary.WriteString("## Выбор модели\n\n")
+		if hasContextRoute {
+			route := result.Context.Route
+			fmt.Fprintf(&summary, "- Модель для выбора контекста `%s` (%s).\n", route.Model, route.Reason)
+		}
+		if route := result.Route; route.Model != "" {
+			fmt.Fprintf(&summary, "- Модель для генерации правки `%s` (%s, %d байт кода).\n",
+				route.Model, route.Reason, route.SourceBytes)
+		}
+		summary.WriteString("\n")
+	}
 	if usage := result.TotalUsage(); usage.Model != "" {
-		fmt.Fprintf(&summary, "## Запросы к модели\n\nМодель `%s`.\n\n", usage.Model)
-		summary.WriteString("| Запрос | Входные токены | Выходные токены | Время |\n| --- | ---: | ---: | ---: |\n")
-		writeRow := func(label string, row ollama.Result) {
-			fmt.Fprintf(&summary, "| %s | %d | %d | %s |\n", label, row.InputTokens, row.OutputTokens,
+		summary.WriteString("## Запросы к моделям\n\n")
+		summary.WriteString("| Запрос | Модель | Входные токены | Выходные токены | Время |\n| --- | --- | ---: | ---: | ---: |\n")
+		writeRow := func(label, model string, row ollama.Result) {
+			fmt.Fprintf(&summary, "| %s | %s | %d | %d | %s |\n", label, model, row.InputTokens, row.OutputTokens,
 				row.Duration.Round(time.Millisecond))
 		}
 		if result.Context != nil && result.Context.Planning.Model != "" {
-			writeRow("Выбор контекста", result.Context.Planning)
+			writeRow("Выбор контекста", result.Context.Planning.Model, result.Context.Planning)
 		}
 		if result.Generation.Model != "" {
-			writeRow("Генерация правки", result.Generation)
+			writeRow("Генерация правки", result.Generation.Model, result.Generation)
 		}
-		writeRow("Всего", usage)
+		writeRow("Всего", "", usage)
 		summary.WriteString("\n")
 	}
 

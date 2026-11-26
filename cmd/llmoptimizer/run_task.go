@@ -16,7 +16,7 @@ import (
 	"github.com/iwnmname/LLMOptimizer/internal/orchestrator"
 )
 
-const runUsage = "llmoptimizer run [--dir PATH] --task TEXT [--file PATH] [--record]"
+const runUsage = "llmoptimizer run [--dir PATH] --task TEXT [--file PATH] [--model NAME] [--record]"
 
 func runTask(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -24,6 +24,7 @@ func runTask(args []string, stdout, stderr io.Writer) int {
 	directory := flags.String("dir", ".", "path to the Go project directory")
 	task := flags.String("task", "", "description of the requested change")
 	file := flags.String("file", "", "file to edit (defaults to automatic selection)")
+	model := flags.String("model", "", "use this Ollama model for every request (defaults to automatic routing)")
 	record := flags.Bool("record", false, "save model and test results in experiments/")
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "Usage: "+runUsage)
@@ -57,6 +58,7 @@ func runTask(args []string, stdout, stderr io.Writer) int {
 		Directory: *directory,
 		File:      *file,
 		Task:      taskText,
+		Model:     *model,
 	}, testOut, testErr)
 	if log != nil {
 		err = errors.Join(err, log.Close())
@@ -69,9 +71,16 @@ func runTask(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "\nContext selection: %d input tokens, %d output tokens, %d additional fragments\n",
 			result.Context.Planning.InputTokens, result.Context.Planning.OutputTokens, len(result.Context.ExpandedSymbols))
 	}
+	if result.Context != nil && result.Context.Route.Model != "" {
+		route := result.Context.Route
+		fmt.Fprintf(stdout, "\nContext model: %s (%s)\n", route.Model, route.Reason)
+	}
+	if route := result.Route; route.Model != "" {
+		fmt.Fprintf(stdout, "Generation model: %s (%s)\n", route.Model, route.Reason)
+	}
 	if usage := result.TotalUsage(); usage.Model != "" {
-		fmt.Fprintf(stdout, "\nModel: %s\nInput tokens: %d\nOutput tokens: %d\nRequest time: %s\n",
-			usage.Model, usage.InputTokens, usage.OutputTokens, usage.Duration.Round(time.Millisecond))
+		fmt.Fprintf(stdout, "\nInput tokens: %d\nOutput tokens: %d\nRequest time: %s\n",
+			usage.InputTokens, usage.OutputTokens, usage.Duration.Round(time.Millisecond))
 	}
 
 	status, exitCode := "success", 0
@@ -118,12 +127,28 @@ func runMeasurements(task string, result orchestrator.RunResult) map[string]any 
 		measurements["output_tokens"] = usage.OutputTokens
 		measurements["model_duration_ms"] = usage.Duration.Round(time.Millisecond).Milliseconds()
 	}
-	if result.Generation.Model != "" && result.Candidate == nil {
-		measurements["model_response"] = result.Generation.Text
+	if generation := result.Generation; generation.Model != "" {
+		measurements["generation"] = map[string]any{
+			"model":         generation.Model,
+			"input_tokens":  generation.InputTokens,
+			"output_tokens": generation.OutputTokens,
+			"duration_ms":   generation.Duration.Round(time.Millisecond).Milliseconds(),
+		}
+		if result.Candidate == nil {
+			measurements["model_response"] = generation.Text
+		}
+	}
+	routing := make(map[string]any, 2)
+	if result.Route.Model != "" {
+		routing["generation"] = result.Route
 	}
 	if selected := result.Context; selected != nil {
+		if selected.Route.Model != "" {
+			routing["context"] = selected.Route
+		}
 		measurements["context"] = map[string]any{
 			"map":               selected.Map,
+			"model":             selected.Planning.Model,
 			"planning_prompt":   selected.Prompt,
 			"planning_response": selected.Planning.Text,
 			"input_tokens":      selected.Planning.InputTokens,
@@ -133,6 +158,9 @@ func runMeasurements(task string, result orchestrator.RunResult) map[string]any 
 			"automatic_symbols": selected.AutomaticSymbols,
 			"expanded_symbols":  selected.ExpandedSymbols,
 		}
+	}
+	if len(routing) > 0 {
+		measurements["routing"] = routing
 	}
 	if result.Candidate != nil {
 		measurements["candidate"] = *result.Candidate

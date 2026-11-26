@@ -11,20 +11,22 @@ import (
 	"github.com/iwnmname/LLMOptimizer/internal/contextmanager"
 	"github.com/iwnmname/LLMOptimizer/internal/indexer"
 	"github.com/iwnmname/LLMOptimizer/internal/ollama"
+	"github.com/iwnmname/LLMOptimizer/internal/router"
 )
 
-type modelCall func(context.Context, string, json.RawMessage) (ollama.Result, error)
+type modelCall func(context.Context, string, string, json.RawMessage) (ollama.Result, error)
 
 type ContextResult struct {
 	Map              string
 	Prompt           string
 	Planning         ollama.Result
+	Route            router.Decision
 	RequestedSymbols []int
 	AutomaticSymbols []int
 	ExpandedSymbols  []contextmanager.Reference
 }
 
-func selectContext(ctx context.Context, workspace string, sources fs.FS, task, description string,
+func selectContext(ctx context.Context, workspace string, sources fs.FS, task, description, model string,
 	askModel modelCall, result *ContextResult,
 ) (string, []contextmanager.Fragment, error) {
 	index, err := indexer.Build(workspace)
@@ -45,7 +47,8 @@ func selectContext(ctx context.Context, workspace string, sources fs.FS, task, d
 	if err != nil {
 		return "", nil, err
 	}
-	result.Planning, err = askModel(ctx, result.Prompt, format)
+	result.Route = router.Choose(task, router.ContextStats{}, model)
+	result.Planning, err = askModel(ctx, result.Route.Model, result.Prompt, format)
 	if err != nil {
 		return "", nil, fmt.Errorf("select repository context: %w", err)
 	}

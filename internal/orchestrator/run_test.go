@@ -34,8 +34,11 @@ func TestRunVerifiesProposalInWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			calls := 0
-			generate := func(_ context.Context, prompt string, format json.RawMessage) (ollama.Result, error) {
+			generate := func(_ context.Context, model, prompt string, format json.RawMessage) (ollama.Result, error) {
 				calls++
+				if model != "fixture:fixed" {
+					t.Fatalf("generation model = %q", model)
+				}
 				for _, want := range []string{"Fix Add", "calc.go", originalSource, "Keep the function signature."} {
 					if !strings.Contains(prompt, want) {
 						t.Errorf("prompt missing %q: %s", want, prompt)
@@ -48,7 +51,7 @@ func TestRunVerifiesProposalInWorkspace(t *testing.T) {
 			}
 
 			var output bytes.Buffer
-			result, err := runWithModel(t.Context(), RunInput{Directory: project, File: "calc.go", Task: "Fix Add"},
+			result, err := runWithModel(t.Context(), RunInput{Directory: project, File: "calc.go", Task: "Fix Add", Model: "fixture:fixed"},
 				&output, io.Discard, generate)
 			if err != nil {
 				t.Fatal(err)
@@ -65,7 +68,7 @@ func TestRunVerifiesProposalInWorkspace(t *testing.T) {
 			if tc.exitCode != 0 && !strings.Contains(output.String(), "unexpected sum") {
 				t.Fatalf("missing failed test output: %s", output.String())
 			}
-			checkTestProjectUnchanged(t, project, scratch)
+			checkTestProjectUnchanged(t, project, scratch, originalSource)
 		})
 	}
 }
@@ -88,7 +91,7 @@ func TestRunRejectsInvalidChanges(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			project, scratch := createTestProject(t)
 			called := false
-			generate := func(context.Context, string, json.RawMessage) (ollama.Result, error) {
+			generate := func(context.Context, string, string, json.RawMessage) (ollama.Result, error) {
 				called = true
 				return ollama.Result{Model: "fixture", Text: tc.response}, tc.modelErr
 			}
@@ -103,7 +106,7 @@ func TestRunRejectsInvalidChanges(t *testing.T) {
 			if result.Candidate != nil || result.Verification != nil {
 				t.Fatalf("invalid change was applied: %+v", result)
 			}
-			checkTestProjectUnchanged(t, project, scratch)
+			checkTestProjectUnchanged(t, project, scratch, originalSource)
 		})
 	}
 }
@@ -115,7 +118,7 @@ func TestVerifyReportsTheOriginalTestFailure(t *testing.T) {
 	if err != nil || result.ExitCode != 1 || !strings.Contains(output.String(), "unexpected sum") {
 		t.Fatalf("result = %+v, error = %v\n%s", result, err, output.String())
 	}
-	checkTestProjectUnchanged(t, project, scratch)
+	checkTestProjectUnchanged(t, project, scratch, originalSource)
 }
 
 func createTestProject(t *testing.T) (project, scratch string) {
@@ -145,10 +148,10 @@ func TestAdd(t *testing.T) {
 	return project, scratch
 }
 
-func checkTestProjectUnchanged(t *testing.T, project, scratch string) {
+func checkTestProjectUnchanged(t *testing.T, project, scratch, expectedSource string) {
 	t.Helper()
 	got, err := os.ReadFile(filepath.Join(project, "calc.go"))
-	if err != nil || string(got) != originalSource {
+	if err != nil || string(got) != expectedSource {
 		t.Fatalf("original source changed: %q, %v", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(project, "test-marker")); !errors.Is(err, os.ErrNotExist) {
